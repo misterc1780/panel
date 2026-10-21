@@ -87,32 +87,13 @@ input,select,textarea{width:100%;background:#0d1727;border:1px solid var(--line)
       <div class="tablewrap"><table><thead><tr><th>Cliente / contacto</th><th>Servicio</th><th>Inicio</th><th>Vencimiento</th><th>Tiempo / estado</th><th>Precio / pago</th><th>Acciones</th></tr></thead><tbody id="rentalsBody"><tr><td colspan="7" class="muted">Cargando...</td></tr></tbody></table></div>
       <p class="small">Las fechas y los estados se calculan automáticamente según la fecha actual del dispositivo.</p>
     </section>
-    <section class="card" id="paymentsSection">
-      <h2>Historial de pagos</h2>
-      <p>Registra cada cobro asociado a una suscripción. Los pagos anteriores se conservan aunque renueves la fecha de vencimiento.</p>
-      <form id="paymentForm">
-        <input id="paymentRecordId" type="hidden">
-        <div class="formgrid">
-          <div class="wide"><label for="paymentRental">Suscriptor / servicio *</label><select id="paymentRental" required><option value="">Selecciona una suscripción</option></select></div>
-          <div><label for="paymentAmount">Importe recibido (MXN) *</label><input id="paymentAmount" type="number" min="0.01" step="0.01" required></div>
-          <div><label for="paymentDate">Fecha del pago *</label><input id="paymentDate" type="date" required></div>
-          <div><label for="paymentMethod">Método de pago</label><select id="paymentMethod"><option value="Transferencia">Transferencia</option><option value="Efectivo">Efectivo</option><option value="Tarjeta">Tarjeta</option><option value="Depósito">Depósito</option><option value="Otro">Otro</option></select></div>
-          <div><label for="paymentPeriod">Periodo / renovación</label><input id="paymentPeriod" maxlength="100" placeholder="Ej. Octubre 2026"></div>
-          <div class="wide"><label for="paymentNotes">Notas</label><textarea id="paymentNotes" rows="2" maxlength="1000"></textarea></div>
-          <div class="wide row"><button class="primary" id="savePayment" type="submit">Registrar pago</button><button id="cancelPaymentEdit" type="button" class="hidden">Cancelar edición</button></div>
-        </div>
-      </form>
-      <div id="paymentsMsg" class="notice hidden"></div>
-      <div class="toolbar" style="margin-top:14px"><input id="paymentSearch" placeholder="Buscar por cliente, servicio o periodo..."><button id="refreshPayments" type="button">Actualizar historial</button></div>
-      <div class="tablewrap"><table><thead><tr><th>Fecha</th><th>Cliente / servicio</th><th>Periodo</th><th>Importe</th><th>Método</th><th>Notas</th><th>Acciones</th></tr></thead><tbody id="paymentsBody"><tr><td colspan="7" class="muted">Cargando historial...</td></tr></tbody></table></div>
-    </section>
     <div class="footer">Guarda tus cambios con conexión a internet. Exporta una copia de seguridad periódicamente.</div>
   </main>
 </div>
 <script>
 (function(){
 'use strict';
-var config = null, token = null, refreshToken = null, userEmail = '', rentals = [], payments = [], editing = false, editingPayment = false;
+var config = null, token = null, refreshToken = null, userEmail = '', rentals = [], editing = false;
 var $ = function(id){return document.getElementById(id);};
 function show(id){$(id).classList.remove('hidden');}
 function hide(id){$(id).classList.add('hidden');}
@@ -132,7 +113,7 @@ function daysLeft(s){var now=new Date();now.setHours(0,0,0,0);return Math.round(
 function stateOf(r){var d=daysLeft(r.end_date);if(d<0)return {key:'vencido',text:'Vencido hace '+Math.abs(d)+' día(s)',cls:'red'};if(d<=3)return {key:'pronto',text:d===0?'Vence hoy':(d===1?'Vence mañana':'Quedan '+d+' días'),cls:'yellow'};return {key:'activo',text:'Quedan '+d+' días',cls:'green'};}
 function money(v){return '$'+Number(v||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
-function loadRentals(){message('appMsg','Actualizando registros...',false);return withRefresh(function(){return api('/rest/v1/rentals?select=*&order=end_date.asc',{method:'GET'});}).then(function(data){rentals=data;render();clearMessage('appMsg');return loadPayments();}).catch(function(e){message('appMsg','No se pudieron cargar las rentas: '+e.message,true);});}
+function loadRentals(){message('appMsg','Actualizando registros...',false);return withRefresh(function(){return api('/rest/v1/rentals?select=*&order=end_date.asc',{method:'GET'});}).then(function(data){rentals=data;render();clearMessage('appMsg');}).catch(function(e){message('appMsg','No se pudieron cargar las rentas: '+e.message,true);});}
 function render(){
  var active=0,soon=0,expired=0,pending=0;
  rentals.forEach(function(r){var st=stateOf(r);if(st.key==='vencido')expired++;else active++;if(st.key==='pronto')soon++;if(r.payment_status!=='Pagado')pending++;});
@@ -142,35 +123,20 @@ function render(){
  list.sort(function(a,b){if(sort==='cliente')return a.client_name.localeCompare(b.client_name);if(sort==='servicio')return a.service_name.localeCompare(b.service_name);return a.end_date.localeCompare(b.end_date);});
  var body=$('rentalsBody');body.innerHTML='';
  if(!list.length){body.innerHTML='<tr><td colspan="7" class="muted">No hay rentas que coincidan. Agrega una renta con el formulario.</td></tr>';return;}
- list.forEach(function(r){var st=stateOf(r),tr=document.createElement('tr');tr.innerHTML='<td><b>'+esc(r.client_name)+'</b><small>'+esc(r.phone||'Sin contacto')+'</small></td><td>'+esc(r.service_name)+'<small>'+esc(r.notes||'')+'</small></td><td>'+esc(r.start_date)+'</td><td>'+esc(r.end_date)+'</td><td><span class="pill '+st.cls+'">'+esc(st.text)+'</span></td><td>'+money(r.price)+'<small>'+esc(r.payment_status)+'</small></td><td><div class="actions"><button data-edit="'+esc(r.id)+'">Editar</button><button class="danger" data-del="'+esc(r.id)+'">Borrar</button></div></td>';body.appendChild(tr);});
+ list.forEach(function(r){var st=stateOf(r),tr=document.createElement('tr');tr.innerHTML='<td><b>'+esc(r.client_name)+'</b><small>'+esc(r.phone||'Sin contacto')+'</small></td><td>'+esc(r.service_name)+'<small>'+esc(r.notes||'')+'</small></td><td>'+esc(r.start_date)+'</td><td>'+esc(r.end_date)+'</td><td><span class="pill '+st.cls+'">'+esc(st.text)+'</span></td><td>'+money(r.price)+'<small>'+esc(r.payment_status)+'</small></td><td><div class="actions"><button class="primary" data-renew="'+esc(r.id)+'">Renovar</button><button data-edit="'+esc(r.id)+'">Editar</button><button class="danger" data-del="'+esc(r.id)+'">Borrar</button></div></td>';body.appendChild(tr);});
 }
-function loadPayments(){
-  populatePaymentRentals();
-  return withRefresh(function(){return api('/rest/v1/pagos?select=*&order=fecha_pago.desc,created_at.desc',{method:'GET'});})
-    .then(function(data){payments=data.filter(function(p){return p.rental_id!=null;});renderPayments();clearMessage('paymentsMsg');})
-    .catch(function(e){payments=[];renderPayments();message('paymentsMsg','No se pudo cargar el historial. Revisa los permisos RLS de la tabla pagos en Supabase. Detalle: '+e.message,true);});
-}
-function populatePaymentRentals(){
-  var sel=$('paymentRental'), current=sel.value;
-  sel.innerHTML='<option value="">Selecciona una suscripción</option>';
-  rentals.forEach(function(r){var o=document.createElement('option');o.value=r.id;o.textContent=(r.client_name||r.customer_name||'Cliente')+' — '+(r.service_name||r.service||'Servicio');sel.appendChild(o);});
-  if(current)sel.value=current;
-}
-function renderPayments(){
-  var q=($('paymentSearch').value||'').toLowerCase().trim(), body=$('paymentsBody');body.innerHTML='';
-  var list=payments.filter(function(p){var r=rentals.find(function(x){return String(x.id)===String(p.rental_id);});var txt=[r&&(r.client_name||r.customer_name),r&&(r.service_name||r.service),p.periodo,p.metodo_pago,p.notas].join(' ').toLowerCase();return txt.indexOf(q)>=0;});
-  if(!list.length){body.innerHTML='<tr><td colspan="7" class="muted">No hay pagos registrados todavía.</td></tr>';return;}
-  list.forEach(function(p){var r=rentals.find(function(x){return String(x.id)===String(p.rental_id);});var tr=document.createElement('tr');tr.innerHTML='<td>'+esc(p.fecha_pago||'')+'</td><td><b>'+esc(r&&(r.client_name||r.customer_name)||'Suscripción')+'</b><small>'+esc(r&&(r.service_name||r.service)||'')+'</small></td><td>'+esc(p.periodo||'—')+'</td><td>'+money(p.monto)+'</td><td>'+esc(p.metodo_pago||'—')+'</td><td>'+esc(p.notas||'')+'</td><td><div class="actions"><button data-payment-edit="'+esc(p.id)+'">Editar</button><button class="danger" data-payment-del="'+esc(p.id)+'">Borrar</button></div></td>';body.appendChild(tr);});
-}
-function resetPaymentForm(){ $('paymentForm').reset();$('paymentRecordId').value='';$('paymentDate').value=new Date().toISOString().slice(0,10);$('savePayment').textContent='Registrar pago';hide('cancelPaymentEdit');editingPayment=false;}
-function paymentPayload(){return {rental_id:Number($('paymentRental').value),monto:Number($('paymentAmount').value),fecha_pago:$('paymentDate').value,estado:'Pagado',periodo:$('paymentPeriod').value.trim(),metodo_pago:$('paymentMethod').value,notas:$('paymentNotes').value.trim()};}
-function savePayment(e){e.preventDefault();var p=paymentPayload();if(!p.rental_id||!p.fecha_pago||!(p.monto>0)){message('paymentsMsg','Selecciona una suscripción, fecha e importe válido.',true);return;}var id=$('paymentRecordId').value,btn=$('savePayment');btn.disabled=true;btn.textContent='Guardando...';clearMessage('paymentsMsg');var path='/rest/v1/pagos'+(id?'?id=eq.'+encodeURIComponent(id):'');withRefresh(function(){return api(path,{method:id?'PATCH':'POST',headers:{'Prefer':'return=representation'},body:JSON.stringify(p)});}).then(function(){resetPaymentForm();message('paymentsMsg',id?'Pago actualizado.':'Pago registrado correctamente.',false);return loadPayments();}).catch(function(err){message('paymentsMsg','No se pudo guardar el pago: '+err.message,true);}).finally(function(){btn.disabled=false;btn.textContent='Registrar pago';});}
-function editPayment(id){var p=payments.find(function(x){return String(x.id)===String(id);});if(!p)return;$('paymentRecordId').value=p.id;$('paymentRental').value=p.rental_id;$('paymentAmount').value=p.monto;$('paymentDate').value=p.fecha_pago||'';$('paymentMethod').value=p.metodo_pago||'Transferencia';$('paymentPeriod').value=p.periodo||'';$('paymentNotes').value=p.notas||'';$('savePayment').textContent='Guardar cambios';show('cancelPaymentEdit');editingPayment=true;document.getElementById('paymentsSection').scrollIntoView({behavior:'smooth'});}
-function deletePayment(id){var p=payments.find(function(x){return String(x.id)===String(id);});if(!p||!confirm('¿Borrar este registro de pago? Esta acción no se puede deshacer.'))return;withRefresh(function(){return api('/rest/v1/pagos?id=eq.'+encodeURIComponent(id),{method:'DELETE'});}).then(loadPayments).catch(function(e){message('paymentsMsg','No se pudo borrar el pago: '+e.message,true);});}
 function resetForm(){ $('rentalForm').reset();$('recordId').value='';$('price').value='0';$('payment').value='Pagado';$('formTitle').textContent='Agregar una renta';$('saveRental').textContent='Guardar renta';hide('cancelEdit');editing=false;}
 function formPayload(){return {client_name:$('client').value.trim(),service_name:$('service').value.trim(),start_date:$('startDate').value,end_date:$('endDate').value,price:Number($('price').value||0),payment_status:$('payment').value,phone:$('phone').value.trim(),notes:$('notes').value.trim()};}
 function saveRental(e){e.preventDefault();var p=formPayload();if(p.end_date<p.start_date){message('appMsg','La fecha de vencimiento no puede ser anterior a la fecha de inicio.',true);return;}var id=$('recordId').value,btn=$('saveRental');btn.disabled=true;btn.textContent='Guardando...';clearMessage('appMsg');var method=id?'PATCH':'POST',path='/rest/v1/rentals'+(id?'?id=eq.'+encodeURIComponent(id):'');var headersExtra=id?{'Prefer':'return=representation'}:{'Prefer':'return=representation'};withRefresh(function(){return api(path,{method:method,headers:headersExtra,body:JSON.stringify(p)});}).then(function(){resetForm();message('appMsg',id?'Renta actualizada.':'Renta guardada.',false);return loadRentals();}).catch(function(err){message('appMsg','No se pudo guardar: '+err.message,true);}).finally(function(){btn.disabled=false;btn.textContent='Guardar renta';});}
 function editRecord(id){var r=rentals.find(function(x){return String(x.id)===String(id);});if(!r)return;$('recordId').value=r.id;$('client').value=r.client_name||'';$('service').value=r.service_name||'';$('price').value=r.price||0;$('startDate').value=r.start_date||'';$('endDate').value=r.end_date||'';$('payment').value=r.payment_status||'Pagado';$('phone').value=r.phone||'';$('notes').value=r.notes||'';$('formTitle').textContent='Editar renta';$('saveRental').textContent='Guardar cambios';show('cancelEdit');editing=true;window.scrollTo(0,0);}
+function renewRecord(id){
+ var r=rentals.find(function(x){return String(x.id)===String(id);});if(!r)return;
+ var base=new Date((r.end_date||new Date().toISOString().slice(0,10))+'T00:00:00');var today=new Date();today.setHours(0,0,0,0);if(base<today)base=today;base.setMonth(base.getMonth()+1);var suggested=base.getFullYear()+'-'+String(base.getMonth()+1).padStart(2,'0')+'-'+String(base.getDate()).padStart(2,'0');
+ var newDate=prompt('Nueva fecha de vencimiento (AAAA-MM-DD):',suggested);if(newDate===null)return;if(!/^\d{4}-\d{2}-\d{2}$/.test(newDate)||isNaN(new Date(newDate+'T00:00:00').getTime())){alert('Fecha no válida. Usa el formato AAAA-MM-DD.');return;}if(newDate<=r.end_date){if(!confirm('La fecha nueva no es posterior al vencimiento actual. ¿Quieres continuar?'))return;}
+ var newPrice=prompt('Precio cobrado por esta renovación (MXN):',String(r.price||0));if(newPrice===null)return;newPrice=Number(newPrice);if(!isFinite(newPrice)||newPrice<0){alert('El precio no es válido.');return;}
+ if(!confirm('Confirmar renovación de '+r.client_name+' — '+r.service_name+'\nNuevo vencimiento: '+newDate+'\nPrecio: '+money(newPrice)+'?'))return;
+ withRefresh(function(){return api('/rest/v1/rentals?id=eq.'+encodeURIComponent(id),{method:'PATCH',headers:{'Prefer':'return=representation'},body:JSON.stringify({start_date:new Date().toISOString().slice(0,10),end_date:newDate,price:newPrice,payment_status:'Pagado'})});}).then(function(){message('appMsg','Suscripción renovada correctamente.',false);return loadRentals();}).catch(function(e){message('appMsg','No se pudo renovar: '+e.message,true);});
+}
 function deleteRecord(id){var r=rentals.find(function(x){return String(x.id)===String(id);});if(!r||!confirm('¿Borrar la renta de '+r.client_name+' ('+r.service_name+')? Esta acción no se puede deshacer.'))return;withRefresh(function(){return api('/rest/v1/rentals?id=eq.'+encodeURIComponent(id),{method:'DELETE'});}).then(loadRentals).catch(function(e){message('appMsg','No se pudo borrar: '+e.message,true);});}
 function csvExport(){var fields=['client_name','service_name','start_date','end_date','price','payment_status','phone','notes'];var rows=[fields.join(',')].concat(rentals.map(function(r){return fields.map(function(f){return '"'+String(r[f]==null?'':r[f]).replace(/"/g,'""')+'"';}).join(',');}));var blob=new Blob(['\ufeff'+rows.join('\r\n')],{type:'text/csv;charset=utf-8;'});var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='mis_rentas.csv';a.click();setTimeout(function(){URL.revokeObjectURL(a.href);},1000);}
 function enterApp(){hide('auth');hide('setup');show('app');loadRentals();}
@@ -183,10 +149,7 @@ $('signIn').onclick=function(){var email=$('email').value.trim(),password=$('pas
 $('signUp').onclick=function(){var email=$('email').value.trim(),password=$('password').value;if(!email||password.length<8){message('authMsg','Escribe un correo válido y una contraseña de al menos 8 caracteres.',true);return;}authRequest('signup',{email:email,password:password}).then(function(d){if(d.access_token){setSession(d);enterApp();}else message('authMsg','Cuenta creada. Revisa tu correo si se solicita confirmación y después inicia sesión.',false);}).catch(function(e){message('authMsg',e.message,true);});};
 $('logoutBtn').onclick=function(){token=null;refreshToken=null;localStorage.removeItem('rentas_session');hide('app');show('auth');};
 $('rentalForm').addEventListener('submit',saveRental);$('cancelEdit').onclick=resetForm;$('search').addEventListener('input',render);$('statusFilter').onchange=render;$('sortFilter').onchange=render;$('refreshBtn').onclick=loadRentals;$('exportBtn').onclick=csvExport;
-$('rentalsBody').addEventListener('click',function(e){var t=e.target;if(t.dataset.edit)editRecord(t.dataset.edit);if(t.dataset.del)deleteRecord(t.dataset.del);});
-$('paymentForm').addEventListener('submit',savePayment);$('cancelPaymentEdit').onclick=resetPaymentForm;$('paymentSearch').addEventListener('input',renderPayments);$('refreshPayments').onclick=loadPayments;
-$('paymentsBody').addEventListener('click',function(e){var t=e.target;if(t.dataset.paymentEdit)editPayment(t.dataset.paymentEdit);if(t.dataset.paymentDel)deletePayment(t.dataset.paymentDel);});
-$('paymentDate').value=new Date().toISOString().slice(0,10);
+$('rentalsBody').addEventListener('click',function(e){var t=e.target;if(t.dataset.renew)renewRecord(t.dataset.renew);if(t.dataset.edit)editRecord(t.dataset.edit);if(t.dataset.del)deleteRecord(t.dataset.del);});
 loadConfig();showStart();
 })();
 </script>
